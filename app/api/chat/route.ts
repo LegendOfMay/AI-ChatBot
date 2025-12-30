@@ -1,25 +1,29 @@
-import { consumeStream, convertToModelMessages, streamText, type UIMessage } from "ai"
+import { type UIMessage } from "ai"
 
 export const maxDuration = 30
 
 export async function POST(req: Request) {
   const { messages }: { messages: UIMessage[] } = await req.json()
 
-  const prompt = convertToModelMessages(messages)
+  const lastMessage = messages[messages.length - 1]
+  const userText = lastMessage?.parts?.find(part => part.type === 'text')?.text || ''
 
-  const result = streamText({
-    model: "anthropic/claude-sonnet-4.5",
-    prompt,
-    abortSignal: req.signal,
-    system: "You are a helpful AI assistant. Provide clear, concise, and accurate responses.",
+  const mockResponse = `This is a mock response to: "${userText}". The AI providers are currently disabled for UI testing.`
+
+  const encoder = new TextEncoder()
+  const stream = new ReadableStream({
+    async start(controller) {
+      controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'text-delta', textDelta: mockResponse })}\n\n`))
+      controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'finish', finishReason: 'stop' })}\n\n`))
+      controller.close()
+    },
   })
 
-  return result.toUIMessageStreamResponse({
-    onFinish: async ({ isAborted }) => {
-      if (isAborted) {
-        console.log("[v0] Chat request aborted")
-      }
+  return new Response(stream, {
+    headers: {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      'Connection': 'keep-alive',
     },
-    consumeSseStream: consumeStream,
   })
 }
